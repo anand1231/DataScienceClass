@@ -1,0 +1,270 @@
+---
+title: "Covid-19 Data"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+date: "2022-11-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**INTRO**
+
+I will be going through the Covid-19 data. The primary question I am interested in is what was the effect of the Covid-19 vaccine on Covid-19 cases and deaths. I will be going through the Covid-19 data that was looked in class and Vaccine data from the site Listed below.
+
+My hypothesis is that the number of deaths_per_thou should be lower in the states with the highest vaccination rates.
+
+In order to build this RMD file we the following packages: library(tidyverse) library(lubridate)
+
+NOTE:  I LEFT ALL OF THE HELPER/ERROR MESSAGES ON, AS I THOUGHT IT WOULD BE HELPFUL.  
+
+# Tidy the Data
+
+```{r TestCovidData, include=TRUE}
+    library(tidyverse)
+    library(lubridate)
+
+    # Just assign a name to a variable. (str)
+    url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+
+    # Same as above... create an array with 4 names.
+    file_names <- c("time_series_covid19_confirmed_US.csv", "time_series_covid19_deaths_US.csv" )
+
+    # concatinate each one with the url_in.  
+    urls <- str_c(url_in,file_names)
+    
+    urlvaccine <- "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/us_state_vaccinations.csv"
+    # read those and assign to variables.
+    
+    us_cases <- read_csv(urls[1])
+    us_deaths <- read_csv(urls[2])
+    Vaccine_data <- read_csv(urlvaccine)
+
+    uid <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+    popul <- read_csv(uid)
+    
+    # Now we are going to join the population in global.
+
+    # DO THE SAME THINGS WITH US CASES:
+    us_cases <- us_cases %>% pivot_longer(cols = -(UID:Combined_Key), names_to = "date", values_to = "cases")
+    us_cases <- us_cases %>% select(Admin2:cases)
+    us_cases <- us_cases %>% mutate(date = mdy(date))
+
+    # DO THE SAME WITH US DEATHS (INCLUDING POPULATION)
+    
+    us_deaths <- us_deaths %>% pivot_longer(cols = -(UID:Population), names_to = "date", values_to = "deaths")
+    us_deaths <- us_deaths %>% select(Admin2:deaths)
+    us_deaths <- us_deaths %>% mutate(date = mdy(date))
+    us_deaths <- us_deaths %>% select(-c(Lat,Long_))
+    
+    # Combine the two
+    US_by_state <- us_cases %>% full_join(us_deaths)
+```
+
+# Transform
+
+Lets add a few more columns and start to look at some things of interest.
+
+```{r TestCovidData2, include=TRUE}
+    # Started another one to now go through and visualize and analize some of the data above
+
+    # Group the data by the following:  
+    US_by_state <- US_by_state %>% group_by(Province_State, Country_Region, date)
+    
+    # add the following:
+    US_by_state <- US_by_state %>% summarise(cases = sum(cases), deaths = sum(deaths), Population = sum(Population))
+    
+    # Add another column
+    US_by_state <- US_by_state %>% mutate(deaths_per_mill = deaths *1000000 / Population) 
+    US_by_state <- US_by_state %>% mutate(cases_per_mill = cases *1000000 / Population) 
+    # Ungroup
+    US_by_state <- US_by_state %>% ungroup()
+
+    US_state_totals <- US_by_state %>% group_by(Province_State) %>% summarise(deaths=max(deaths), cases=max(cases), population = max(Population), cases_per_thou=1000*cases/ population, deaths_per_thou=1000* deaths / population) %>% filter(cases>0, population>0)
+    
+    # Lets add the Vaccine Data to the US_state_totals
+    
+    VaccineTotals <- Vaccine_data %>% select(date,location, people_fully_vaccinated)
+    
+    # Lets get the totals for each state
+    
+    VaccineTotals <- VaccineTotals %>% group_by(location) %>% summarise(People_fully_vaccinated=max(people_fully_vaccinated, na.rm=TRUE))
+
+    # rename location to Province_State
+    VaccineTotals <- VaccineTotals %>% rename(Province_State = location)
+    
+    # Lets combine this with the US_State_totals
+    
+    US_state_totals <- US_state_totals  %>% full_join(VaccineTotals)
+    
+    # Lets add another column for percent 
+    
+    US_state_totals <- US_state_totals  %>% mutate(VaccinePercent = People_fully_vaccinated/population ) 
+
+    # Lets Cleanup Vaccine data as well.  
+    
+    Vaccine_data <- Vaccine_data %>% select(date, location, people_fully_vaccinated )
+    Vaccine_data <- Vaccine_data %>% rename(Province_State = `location`)
+
+```
+
+# Interesting Charts
+
+Now lets take a look at some interesting states.
+
+```{r totals1, include=TRUE}
+    # Here is a list of states with the most deaths.
+
+    US_state_totals %>% slice_max(deaths_per_thou, n=10)
+
+```
+
+Let us take a look at some states with the lowest death rates:
+
+```{r totals2, include=TRUE}
+
+    US_state_totals %>% slice_min(deaths_per_thou, n=10)
+```
+
+Lets take a look at the Vaccination rates
+
+```{r totals3, include=TRUE}
+
+    US_state_totals %>% slice_max(VaccinePercent, n=10)
+
+```
+
+Lets Take a look at the states with the minimum Vaccine Rates
+
+```{r totals4, include=TRUE}
+
+    US_state_totals %>% slice_min(VaccinePercent, n=10)
+
+```
+
+# ANALYSIS
+
+## From the above date lets take a look at the following states:##
+
+I picked Massachusetts as it was a state with a pretty large population.. compared to the rest of the states.
+
+Massachusetts 24249 2220962 6892503 322.2287 3.5181704 5810671
+
+## I thought it was important to pick something that was quite a bit further away from the Northeast. ##
+
+Hawaii 1834 380098 1415872 268.4551 1.2953148 1154399
+
+## I picked these as these were the two states with the lowest vaccination rates. They also had population over one Million. ##
+
+Alabama 21001 1642062 4903185 334.8970 4.283134 2607186 
+Missouri 22825 1773682 6626371 267.6702
+
+```{r StateGraphs, include=TRUE}
+    
+# Lets look at the us totals as well.  This was done in class
+    
+    us_totals <- US_by_state %>% group_by(Country_Region, date) %>% summarize(cases=sum(cases), deaths=sum(deaths), Population = sum(Population)) %>% mutate(deaths_per_mill = deaths * 1000000/Population)
+
+    # Ungroup them. 
+    us_totals <- us_totals %>% ungroup()
+
+    # SHOW THE GRAPH OF DEATHS VS. CASES
+    
+    us_totals %>% filter(cases> 0) %>% ggplot(aes(x=date, y=cases)) +geom_line(aes(color = "cases")) +geom_point(aes(color = "cases")) + geom_line(aes(y=deaths, color = "deaths")) +geom_line(aes(color = "deaths")) +geom_point(aes(color = "deaths")) + scale_y_log10() + theme(legend.position="bottom", axis.text.x = element_text(angle=90)) +labs(title = "Covid19 in US", Y = NULL)
+
+```
+
+## Visualize
+
+It looks like overall the cases and death rates are flat. This was what we would expect from looking at the US Data above.
+
+```{r StateGraphs1, include=TRUE}
+
+# Lets take a look at the 4 states we picked above.  Two from the lowest catagory and two from the highest catagory of vaccinations.
+
+    US_by_state %>% filter(cases > 0, deaths > 0, Province_State == "Alabama") %>% ggplot(aes(x=date, y=cases)) +geom_line(aes(color="cases")) +geom_line(aes(y=deaths, color="deaths")) + scale_y_log10() +labs(title = "Covid19 in Alabama", Y = NULL)
+    
+        US_by_state %>% filter(cases > 0, deaths > 0, Province_State == "Missouri") %>% ggplot(aes(x=date, y=cases)) +geom_line(aes(color="cases")) +geom_line(aes(y=deaths_per_mill, color="deaths_per_mill")) + scale_y_log10() +labs(title = "Covid19 in Missouri", Y = NULL)
+        
+        US_by_state %>% filter(cases > 0, deaths > 0, Province_State == "Massachusetts") %>% ggplot(aes(x=date, y=cases)) +geom_line(aes(color="cases")) +geom_line(aes(y=deaths_per_mill, color="deaths_per_mill")) + scale_y_log10() +labs(title = "Covid19 in Massachusetts", Y = NULL)
+
+    US_by_state %>% filter(cases > 0, deaths > 0, Province_State == "Hawaii", date > "2022-01-01") %>% ggplot(aes(x=date, y=cases)) +geom_line(aes(color="cases")) +geom_line(aes(y=deaths_per_mill, color="deaths_per_mill")) + scale_y_log10() +labs(title = "Covid19 in Hawaii", Y = NULL)
+
+    
+ 
+```
+# VISUALIZE
+
+    Now lets look at the Vaccine data and new Deaths and New cases.  
+``` {r MyAnalysis, include=TRUE}
+
+
+# Since all we care about is people who have been fully_vaccinated.
+
+    #Vaccine_data <- Vaccine_data %>% select(date, location, people_fully_vaccinated )
+    #Vaccine_data <- Vaccine_data %>% rename(Province_State = `location`)
+
+# Now lets go ahead and combine this with the states total.  
+
+    US_by_state_vaccine <- US_by_state %>% full_join(Vaccine_data,by=c("Province_State","date"))
+
+    # Now lets just look at the new cases
+    US_by_state_vaccine <- US_by_state_vaccine %>% mutate(new_cases = cases - lag(cases), new_deaths=deaths - lag(deaths), new_vaccine = people_fully_vaccinated - lag(people_fully_vaccinated) )
+
+    US_by_state_vaccine <- US_by_state_vaccine %>% mutate(Percent_deaths = new_deaths/new_cases *100)
+
+    US_by_state_vaccine <- US_by_state_vaccine %>% mutate(vaccine_per_hundred = 1000 * people_fully_vaccinated/Population)
+
+    US_by_state_vaccine <- US_by_state_vaccine %>% mutate(cases_per_hundred = 1000 * cases/Population)
+
+    US_by_state_vaccine %>% filter(new_deaths > 0, people_fully_vaccinated > 0, new_cases > 0, Province_State == "Alabama") %>% ggplot(aes(x=date, y=new_cases)) +geom_line(aes(color="new_cases")) +geom_line(aes(y=new_deaths, color="new_deaths"))+ggtitle("New Cases vs. Deaths in Alabama")
+
+    US_by_state_vaccine %>% filter(new_deaths > 0, people_fully_vaccinated > 0, new_cases > 0, Province_State == "Missouri") %>% ggplot(aes(x=date, y=new_cases)) +geom_line(aes(color="new_cases")) +geom_line(aes(y=new_deaths, color="new_deaths"))+ ggtitle("New Cases vs. Deaths in Missouri")
+
+    US_by_state_vaccine %>% filter(new_deaths > 0, people_fully_vaccinated > 0, new_cases > 0, Province_State == "Massachusetts") %>% ggplot(aes(x=date, y=new_cases)) +geom_line(aes(color="new_cases")) +geom_line(aes(y=new_deaths, color="new_deaths"))+ ggtitle("New Cases vs. Deaths in Massachusetts")
+
+    US_by_state_vaccine %>% filter(new_deaths > 0, people_fully_vaccinated > 0, new_cases > 0, Province_State == "Hawaii") %>% ggplot(aes(x=date, y=new_cases)) +geom_line(aes(color="new_cases")) +geom_line(aes(y=new_deaths, color="new_deaths")) + ggtitle("New Cases vs. Deaths in Hawaii")
+
+       
+    ```
+
+# MORE VISUALS
+
+Lets see if the percent of deaths vs. new cases in each of the above states.
+
+So our hypothesis was that states with the greater number of vaccinated residents should have lesser number of residents dying. So we are going to take a look at each of the states and see if that's true.
+
+```{r VaccineS, include=TRUE}
+
+# Some things to note.  I took a look at all numbers after 2021-07-01.  Mostly because we started vaccinations in January of 2021 and it takes time to Vaccinate people.
+
+# Lets take a look at Alabama First.  
+US_by_state_vaccine %>% filter(new_deaths > 0, people_fully_vaccinated > 0, new_cases > 0, Province_State == "Alabama", Percent_deaths < 25, date > '2021-07-01') %>% ggplot(aes(x=date, y=Percent_deaths)) +geom_line(aes(color="Percent_deaths"))+labs(title = "Percent of People dying vs. Cases in Alabama", Y = NULL)
+
+# Lets take a look at Missouri.  
+
+US_by_state_vaccine %>% filter(new_deaths > 0, people_fully_vaccinated > 0, new_cases > 0, Province_State == "Missouri", Percent_deaths < 25, date > '2021-07-01') %>% ggplot(aes(x=date, y=Percent_deaths)) +geom_line(aes(color="Percent_deaths"))+labs(title = "Percent of People dying vs. Cases in Missouri", Y = NULL)
+
+
+
+US_by_state_vaccine %>% filter(new_deaths > 0, people_fully_vaccinated > 0, new_cases > 0, Province_State == "Massachusetts", Percent_deaths < 25, date > '2021-07-01') %>% ggplot(aes(x=date, y=Percent_deaths)) +geom_line(aes(color="Percent_deaths"))+geom_line(aes(color="Percent_deaths"))+labs(title = "Percent of People dying vs. Cases in Massachusetts", Y = NULL)
+
+US_by_state_vaccine %>% filter(new_deaths > 0, people_fully_vaccinated > 0, new_cases > 0, Province_State == "Hawaii", Percent_deaths < 25, date > '2021-07-01') %>% ggplot(aes(x=date, y=Percent_deaths)) +geom_line(aes(color="Percent_deaths"))+geom_line(aes(color="Percent_deaths"))+labs(title = "Percent of People dying vs. Cases in Hawaii", Y = NULL)
+
+```
+# ANALYSIS
+
+As we can clearly see the death rate in states with high vaccination is quite a bit.  Lets just take a look at Alabama and Massachusetts and you can see the chances of you dying from Covid-19 goes down dramatically.  
+
+## BIAS
+
+Personal Bias I think I picked Massachusetts as I have ties to that state. 
+
+Now sure how each state are collecting there data.
+
+Demographics can also play a big role. 
+
