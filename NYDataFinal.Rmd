@@ -1,0 +1,223 @@
+---
+title: "New York Shooting Data by Boro"
+output:
+  pdf_document: default
+  html_document: default
+  always_allow_html: true
+date: "2023-02-18" 
+---
+
+## IMPORTANT ##
+
+## PLEASE NOTE:  The mapview package has an output that does *NOT* support knit to PDF output.  Please Knit to html only.##
+
+
+## IMPORT DATA
+
+First we are going to go through and import the data. We are going to read in the data from <https://data.cityofnework.us>.
+
+We are also going to use the tidyverse,lubridate, ggplot2, and the mapview library.
+
+We are also going to read in the CSV version of the data.
+
+    # NYCity_data <- read_csv(url_in)
+    # url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+```{r DataImport, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+
+    suppressMessages(library(tidyverse))
+    suppressMessages(library(lubridate))
+    suppressMessages(library(ggplot2))
+    suppressMessages(library(mapview))
+
+    url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+    NYCity_data <- read_csv(url_in)
+```
+
+## TIDY DATA
+
+The Types of Data we are interested in is the following:
+
+-   Where the incident occurred.
+-   Which NY City borough
+-   Which Year an incident occurred
+-   if the victim was murdered.
+
+```{r DataTidy, include=TRUE,message=FALSE, warning=FALSE}
+
+    NYCity_data <- NYCity_data %>% select(-c(INCIDENT_KEY, LOCATION_DESC, JURISDICTION_CODE, Lon_Lat,X_COORD_CD, Y_COORD_CD,OCCUR_TIME ))
+
+    # We are interested in seeing the following.  The number of shooting
+    # incidents per Month and Year.
+    # We are also seeing how many of those people got murdered.
+
+        NYBoro <- NYCity_data %>% select(OCCUR_DATE,BORO,STATISTICAL_MURDER_FLAG )
+
+    NYBoro <- NYBoro %>% rename(date = OCCUR_DATE) %>% mutate(date = mdy(date)) %>% rename(murder = STATISTICAL_MURDER_FLAG) %>% mutate(VICTIM = 1)
+
+    NYBoro <- NYBoro %>% mutate(year=year(date), month=month(date))
+
+    # Not sure how do this with tidyverse
+
+    NYBoro$murder <- as.integer(as.logical(NYBoro$murder))
+
+```
+
+## TRANSFORM and VISUALIZE
+
+Lets go ahead and summarize the victims and murders.
+
+\# NYBorobyYear \<- NYBoro %\>% group_by(BORO, year ) %\>% summarise(VICTIM = sum(VICTIM), murder = sum(murder)) %\>% ungroup()
+
+\# Percent murders
+
+\# NYBorobyYear \<- NYBorobyYear %\>% mutate(perMurder = (murder/VICTIM)\*100
+
+```{r DataTrans, include=TRUE,message=FALSE, warning=FALSE}
+
+    NYBorobyYear <- NYBoro %>%
+    group_by(BORO, year ) %>%
+    summarise(VICTIM = sum(VICTIM), murder = sum(murder)) %>%
+    ungroup()
+
+    # Percent murders
+
+    NYBorobyYear <- NYBorobyYear %>% mutate(perMurder = (murder/VICTIM)*100)
+    
+    
+```
+
+## Lets graph the number of Victims per year in each BORO
+
+```{r DataGraph1, include=TRUE,message=FALSE, warning=FALSE}
+
+NYBorobyYear %>% ggplot(aes(x=year, y=VICTIM)) +geom_line(aes(col=BORO))
+
+```
+
+## Lets graph the number of Murders per year
+
+```{r DataGraph2, include=TRUE,message=FALSE, warning=FALSE}
+
+    NYBorobyYear %>% ggplot(aes(x=year, y=murder)) +geom_line(aes(col=BORO))
+
+```
+
+## ANALYSIS
+
+Here we can see that the numbers of Victims and the number of murders. The headlines recently had stated that Gun incidents are up recently.
+
+This we can clearly see in the above graphs.
+
+## VICTIMS vs. MURDERS
+
+So I was curious if the number of murders vs. the number of victims had Changes over time.
+
+```{r DataGraph3, include=TRUE,message=FALSE, warning=FALSE}
+
+
+    NYBorobyYear %>% ggplot(aes(x=year, y=perMurder)) +geom_line(aes(col=BORO))
+
+```
+
+## ANALYSIS
+
+I really thought that we would see more people surviving gun violence. But that was not the case. It's around 20%.
+
+We will also model this later as well.
+
+Note that Staten Island is a little bit of an outlier. It's because of so few murders occurring in the Borough.
+
+## MORE VISUALS AND MURDERS
+
+I wanted to see one borough had higher rate of incidents vs. the population in that borough. In this case I grabbed some population data for each borough.
+
+In this case I went through the whole process of Tidy, transforming, Visualize, and Model the data.
+
+```{r DataGraph4, include=TRUE,message=FALSE, warning=FALSE}
+
+    Popurl2 <- "https://data.cityofnewyork.us/api/views/xywu-7bv9/rows.csv?accessType=DOWNLOAD"
+    NyPop_data <- read_csv(Popurl2)
+    
+    NYPopData <-NyPop_data %>% select(Borough,`2010`,`2020`)
+
+    # Pivot the data
+    
+    NYPopData <- NYPopData %>% pivot_longer(cols = -c(`Borough`), names_to = "year", values_to = "population")
+    
+    # Convert Year to Double.  
+    NYPopData$year <- as.double(NYPopData$year)
+    # Delete first few rows
+    NYPopData <- NYPopData[-1,]
+    NYPopData <- NYPopData[-1,]
+
+    # rename
+    NYPopData <- NYPopData %>% rename("BORO"="Borough")
+    NYPopData <- NYPopData %>% mutate(BORO = toupper(BORO))
+
+        NYBoroPopulation <- NYBorobyYear  %>% filter(year==2010 | year==2020)
+    # Join the data...  
+    NYBoroPopulation <- NYBoroPopulation %>% left_join(NYPopData, by = c("year","BORO"))
+    
+    # Now lets calculate the rate per 100000
+    NYBoroPopulation <- NYBoroPopulation %>% mutate(RatePer = (VICTIM/population) * 100000)
+    NYBoroPopulation <- NYBoroPopulation %>% mutate(DRatePer = (murder/population) * 100000)
+
+
+```
+
+I took the population data and joined it with the incident data. Created a few new columns for Victims per 100000 population, and murders per 100000 population.
+
+```{r DataGraph5, include=TRUE,message=FALSE, warning=FALSE}
+
+NYBoroPopulation %>% filter(year==2010) %>% ggplot(aes(x=BORO, y=RatePer, fill=BORO)) + geom_bar(stat='identity' )
+
+NYBoroPopulation %>% filter(year==2010) %>% ggplot(aes(x=BORO, y=DRatePer,fill=BORO)) + geom_bar(stat='identity' ) 
+
+```
+
+Lets map out the location of incidents on a Map.  Just to see if gun crime is localized to certain areas.
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+    # library(mapview)
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+    NY_data <- read_csv(url_in)
+    
+    # remove the Column INCIDENT_KEY and LOCATION_DESC 
+    df = subset(NY_data, select=-c(INCIDENT_KEY, LOCATION_DESC, JURISDICTION_CODE))
+    
+    
+    
+    #  rename:
+    df <- df %>%
+        rename(time = OCCUR_TIME, date = OCCUR_DATE)
+
+    # Convert a column into a tye DAte
+    df <- df %>%
+        mutate(date = mdy(date))
+    
+    df <- df %>% mutate(year=year(date), month=month(date))
+    
+    df %>% filter(BORO == "MANHATTAN", STATISTICAL_MURDER_FLAG == TRUE, year == c(2006,2013,2020)) %>% mapview(xcol="Longitude", ycol = "Latitude", zcol="year", crs=4326)
+    
+    # df %>% filter(BORO == "BRONX", STATISTICAL_MURDER_FLAG == TRUE) %>% mapview(xcol="Longitude", ycol = "Latitude", zcol="year", crs=4326)
+
+    # show the last few lines
+```
+## BIAS ##
+
+- Personal Bias
+    - I am familiar with Manhattan.
+    - Confirmation bias
+
+- Other Bias
+    - Not sure how the data is collected.
+    - Limited data availability.  I would have loved to start from the 1960's.  
+
+    
